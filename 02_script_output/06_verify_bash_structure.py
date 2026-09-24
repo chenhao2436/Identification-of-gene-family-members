@@ -184,13 +184,98 @@ def check_file(path):
     return problems, notes
 
 
+def check_defaults(script_path):
+    """
+    复刻流水线的「零参数默认路径」探测逻辑（BASH_SOURCE -> SCRIPT_DIR -> PROJECT_DIR），
+    并核对磁盘上这些路径是否真的存在、序列条数是否正确。
+
+    沙箱内无法运行 bash，因此用本函数验证 --query/--db-fasta 的默认值是否可用，
+    避免"一键运行"实际上找不到文件。
+    """
+    problems = []
+    script_path = os.path.abspath(script_path)
+    script_dir = os.path.dirname(script_path)
+    project_dir = os.path.dirname(script_dir)
+
+    print("=" * 66)
+    print("默认路径检查（模拟零参数运行）")
+    print("=" * 66)
+    print("  SCRIPT_DIR  = %s" % script_dir)
+    print("  PROJECT_DIR = %s" % project_dir)
+
+    # 与脚本中 probe 顺序一致
+    query_cands = [
+        os.path.join(script_dir, "01_At_TRM_query_34.fasta"),
+        os.path.join(project_dir, "01_At_TRM_query_34.fasta"),
+        os.path.join(project_dir, "01_At_TRM_query", "01_At_TRM_query_34.fasta"),
+    ]
+    input_dir = os.path.join(project_dir, "01_At_TRM_query")
+    db_cands = [
+        os.path.join(input_dir, "Zunla_Canz.pep.fa"),
+        os.path.join(input_dir, "Canz.pep.fa"),
+        os.path.join(project_dir, "Zunla_Canz.pep.fa"),
+    ]
+    map_cands = [
+        os.path.join(script_dir, "02_At_TRM_annotation.tsv"),
+        os.path.join(project_dir, "02_At_TRM_annotation.tsv"),
+    ]
+    outdir = os.path.join(project_dir, "05_blast_results")
+
+    def first(cands, label, expect_headers=None):
+        for c in cands:
+            if os.path.isfile(c):
+                n = None
+                if expect_headers is not None:
+                    with open(c, "r", encoding="utf-8", errors="replace") as fh:
+                        n = sum(1 for l in fh if l.startswith(">"))
+                    ok = (n == expect_headers)
+                    mark = "OK" if ok else "条数不符!"
+                    print("  [%s] %-10s %s  (%d 条, 期望 %d)"
+                          % (mark, label, c, n, expect_headers))
+                    if not ok:
+                        problems.append("%s 序列数为 %d，期望 %d（%s）"
+                                        % (label, n, expect_headers, c))
+                else:
+                    print("  [OK] %-10s %s" % (label, c))
+                return c
+        problems.append("%s 的默认路径全部不存在，尝试过：%s"
+                        % (label, "; ".join(cands)))
+        print("  [FAIL] %-10s 未找到（尝试 %d 个候选路径）" % (label, len(cands)))
+        return None
+
+    first(query_cands, "query", expect_headers=34)
+    first(db_cands, "db", expect_headers=52385)
+    first(map_cands, "map")
+    print("  [--] outdir     %s  (脚本会自动创建)" % outdir)
+
+    print("-" * 66)
+    if problems:
+        print("默认路径检查失败 %d 项:" % len(problems))
+        for p in problems:
+            print("  - %s" % p)
+        return problems
+    print("默认路径检查通过 ✅  可直接零参数一键运行")
+    return []
+
+
 def main():
-    if len(sys.argv) < 2:
+    argv = sys.argv[1:]
+    if not argv:
         print("用法: python verify_bash_structure.py <script.sh> [...]")
+        print("      python verify_bash_structure.py --check-defaults <pipeline.sh>")
         return 2
 
+    if argv[0] == "--check-defaults":
+        if len(argv) < 2:
+            print("用法: python verify_bash_structure.py --check-defaults <pipeline.sh>")
+            return 2
+        if not os.path.exists(argv[1]):
+            print("[错误] 找不到文件: %s" % argv[1])
+            return 1
+        return 1 if check_defaults(argv[1]) else 0
+
     rc = 0
-    for path in sys.argv[1:]:
+    for path in argv:
         if not os.path.exists(path):
             print("[错误] 找不到文件: %s" % path)
             rc = 1

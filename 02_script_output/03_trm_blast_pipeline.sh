@@ -1,38 +1,40 @@
 #!/usr/bin/env bash
 # =============================================================================
-# trm_blast_pipeline.sh
+# 03_trm_blast_pipeline.sh
 #   拟南芥 TRM 家族(34 条代表蛋白)比对 Zunla 辣椒蛋白组 -> 鉴定候选家族
 #
-# 用法:
-#   bash trm_blast_pipeline.sh \
-#       --query   query/TRM_34.fasta \
-#       --db-fasta db/Canz.pep.fa \
-#       --outdir  out \
-#       --threads 8 \
-#       --evalue  1e-5 \
-#       --ident   30 \
-#       --cov     50
+# 一键运行（零参数，自动识别项目内文件路径）:
+#     bash 03_trm_blast_pipeline.sh
+# 或指定线程数:
+#     bash 03_trm_blast_pipeline.sh --threads 16
 #
-# 阈值(采纳方案定稿):
+# 默认路径（均相对本脚本所在目录 ../ 解析，可在任意目录下调用本脚本）:
+#     query   = 02_script_output/01_At_TRM_query_34.fasta      (34 条代表蛋白)
+#     db      = 01_At_TRM_query/Zunla_Canz.pep.fa              (52,385 条)
+#     map     = 02_script_output/02_At_TRM_annotation.tsv      (Query 注释表)
+#     outdir  = 05_blast_results/                              (结果输出)
+# 若你的文件放别处，用 --query / --db-fasta / --map / --outdir 覆盖即可。
+#
+# 阈值（已定稿）:
 #   E-value <= 1e-5 且 identity >= 30% 且 query coverage >= 50%
 #   理由: TRM 富含重复序列, identity 天然偏低(卡 50% 会漏真成员);
 #         coverage 才是主力过滤器(排除"仅局部重复区匹配"的假阳性)。
 #
-# 产出:
-#   ① out/TRM_vs_Zunla.blast.tsv                     原始 BLAST 结果
-#   ② out/TRM_candidates_protein_level.txt            去重候选蛋白 ID(含 isoform)
-#      out/TRM_candidates_gene_level.txt               去重候选基因 ID(剥离后缀)
-#   ③ out/Zunla_TRM_candidate_proteins.fasta          去重候选蛋白 FASTA
-#   辅助 out/01_*.tsv|txt|png, out/Zunla_TRM_candidate_proteins_genelevel.fasta
+# 产出（均在 --outdir 下）:
+#   ① TRM_vs_Zunla.blast.tsv                     原始 BLAST 结果
+#   ② TRM_candidates_protein_level.txt            去重候选蛋白 ID(含 isoform)
+#     TRM_candidates_gene_level.txt               去重候选基因 ID(剥离后缀)
+#   ③ Zunla_TRM_candidate_proteins.fasta          去重候选蛋白 FASTA
+#   辅助 01_*.tsv|txt|png, Zunla_TRM_candidate_proteins_genelevel.fasta
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.0"
+VERSION="2.0"
 
 # ------------------------------ 默认参数 -------------------------------------
 QUERY=""
 DB_FASTA=""
-OUTDIR="out"
+OUTDIR=""
 THREADS=4
 EVALUE="1e-5"
 IDENT=30
@@ -40,7 +42,7 @@ COV=50
 MAX_TARGET=50
 DB_PREFIX=""
 FORCE=0
-MAPFILE=""          # 可选: At 基因映射表(推荐传 TRM_representative_proteins.tsv)
+MAPFILE=""          # 默认自动使用同目录下的 02_At_TRM_annotation.tsv
 
 # ------------------------------ 工具函数 -------------------------------------
 log()  { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
@@ -49,8 +51,8 @@ die()  { printf '\n[错误] %s\n' "$*" >&2; exit 1; }
 warn() { printf '[警告] %s\n' "$*" >&2; }
 
 usage() {
-  # 打印脚本头部注释块（第 2-27 行）作为帮助；不依赖行号以外的东西
-  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+  # 打印脚本头部注释块（从第 2 行到遇到 set -euo pipefail 为止）
+  sed -n '2,/^set -euo pipefail$/p' "$BASH_SOURCE" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -73,8 +75,46 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$QUERY"    ]] || die "缺少 --query"
-[[ -n "$DB_FASTA" ]] || die "缺少 --db-fasta"
+# -------------------- 自动识别项目内路径（零参数一键运行）--------------------
+# BASH_SOURCE 保证无论从哪个目录调用本脚本，都相对脚本自身定位
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+INPUT_DIR="${TRM_INPUT_DIR:-${PROJECT_DIR}/01_At_TRM_query}"
+
+# query 默认与本脚本同目录；若不在则回退到项目根搜索
+if [[ -z "$QUERY" ]]; then
+  for cand in \
+      "${SCRIPT_DIR}/01_At_TRM_query_34.fasta" \
+      "${PROJECT_DIR}/01_At_TRM_query_34.fasta" \
+      "${PROJECT_DIR}/01_At_TRM_query/01_At_TRM_query_34.fasta"; do
+    [[ -f "$cand" ]] && { QUERY="$cand"; break; }
+  done
+  [[ -z "$QUERY" ]] && QUERY="${SCRIPT_DIR}/01_At_TRM_query_34.fasta"   # 让校验给出明确报错
+fi
+
+# Zunla 参考蛋白组
+if [[ -z "$DB_FASTA" ]]; then
+  for cand in \
+      "${INPUT_DIR}/Zunla_Canz.pep.fa" \
+      "${INPUT_DIR}/Canz.pep.fa" \
+      "${PROJECT_DIR}/Zunla_Canz.pep.fa"; do
+    [[ -f "$cand" ]] && { DB_FASTA="$cand"; break; }
+  done
+  [[ -z "$DB_FASTA" ]] && DB_FASTA="${INPUT_DIR}/Zunla_Canz.pep.fa"
+fi
+
+# Query 注释表（可选，用于把命中映射回 At 基因号）
+if [[ -z "$MAPFILE" ]]; then
+  for cand in \
+      "${SCRIPT_DIR}/02_At_TRM_annotation.tsv" \
+      "${PROJECT_DIR}/02_At_TRM_annotation.tsv"; do
+    [[ -f "$cand" ]] && { MAPFILE="$cand"; break; }
+  done
+fi
+
+# 结果输出目录
+OUTDIR="${OUTDIR:-${PROJECT_DIR}/05_blast_results}"
 
 mkdir -p "$OUTDIR"
 DB_PREFIX="${DB_PREFIX:-${OUTDIR}/Canz.pep}"
@@ -88,8 +128,11 @@ DIAG="${OUTDIR}/01_diagnostics.txt"
 run_pipeline() {
 
 log "trm_blast_pipeline.sh v${VERSION}"
-log "query=$QUERY  db=$DB_FASTA  outdir=$OUTDIR  threads=$THREADS"
-log "阈值: E<=$EVALUE  identity>=$IDENT%  coverage>=$COV%"
+log "query=$QUERY"
+log "db   =$DB_FASTA"
+log "out  =$OUTDIR"
+log "map  =${MAPFILE:-<无>}"
+log "阈值: E<=$EVALUE  identity>=$IDENT%  coverage>=$COV%  线程=$THREADS"
 
 # =============================================================================
 step 0 "输入校验与环境检查"

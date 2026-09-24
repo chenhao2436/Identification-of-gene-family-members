@@ -8,7 +8,7 @@ TRM 候选家族成员。本目录是该工作的**独立项目包**，自带输
 ## 一、目录结构
 
 ```
-Identification of gene family members/
+Identification_of_gene_family_members/
 │
 ├── 01_At_TRM_query/                  输入数据
 │   ├── Zunla_Canz.pep.fa               ★ Zunla 辣椒蛋白组（52,385 条，21 MB）
@@ -19,10 +19,10 @@ Identification of gene family members/
 ├── 02_script_output/                 ★ 六个核心文件 + 运行脚本
 │   ├── 01_At_TRM_query_34.fasta        ★① BLAST query：34 条 TRM 代表蛋白
 │   ├── 02_At_TRM_annotation.tsv        ★② query 注释表（基因/转录本/TRM符号/长度）
-│   ├── 03_trm_blast_pipeline.sh        ★③ BLAST 鉴定流水线（服务器运行）
+│   ├── 03_trm_blast_pipeline.sh        ★③ BLAST 鉴定流水线（一键运行）
 │   ├── 04_summarize_candidates.py      ★④ 候选统计与出图
 │   ├── 05_verify_pipeline_logic.py     ★⑤ 流水线逻辑验证（22 条断言）
-│   └── 06_verify_bash_structure.py     ★⑥ bash 结构校验器
+│   └── 06_verify_bash_structure.py     ★⑥ bash 结构校验器（含默认路径检查）
 │
 ├── 03_auxiliary/                     辅助材料（前序步骤与备查）
 │   ├── 00_peek_fasta_format.py         FASTA 头格式查看
@@ -38,8 +38,11 @@ Identification of gene family members/
 │   ├── README.md                       本目录说明与 SnapGene 文件注意事项
 │   └── SnapGene_prot_files/            34 个 SnapGene 二进制 .prot（非 FASTA，不可用于 BLAST）
 │
-└── （版本控制忽略规则在仓库根：../.gitignore）
+└── 05_blast_results/                 ★ 运行产物（首次运行时自动创建）
+    └── ...                             原始结果 / 候选 ID / 候选 FASTA / 统计图
 ```
+
+> 版本控制忽略规则在本仓库根的 `.gitignore`（忽略两个大参考数据文件、BLAST 产物与 `04_temp/`）。
 
 ---
 
@@ -49,12 +52,13 @@ Identification of gene family members/
 |---|---|---|---|
 | ① | `01_At_TRM_query_34.fasta` | **BLAST 的 query**：34 个 At TRM 基因各取一条最长转录本 | 输入 |
 | ② | `02_At_TRM_annotation.tsv` | query 注释表，含 `gene_id` 列用于把结果映射回 At 基因号 | 输入 |
-| ③ | `03_trm_blast_pipeline.sh` | **主流水线**：校验→建库→比对→过滤分档→去重→抽序列→统计出图 | 服务器 |
-| ④ | `04_summarize_candidates.py` | 被 ③ 调用；I/C 分布统计、断崖检测、三联图 | 服务器 |
+| ③ | `03_trm_blast_pipeline.sh` | **主流水线**：校验→建库→比对→过滤分档→去重→抽序列→统计出图 | 零参数一键运行 |
+| ④ | `04_summarize_candidates.py` | 被 ③ 自动调用；I/C 分布统计、断崖检测、三联图 | 无需手动运行 |
 | ⑤ | `05_verify_pipeline_logic.py` | 22 条断言验证阈值边界/三档/去重逻辑 | 本地或服务器 |
-| ⑥ | `06_verify_bash_structure.py` | 静态检查 bash 结构（括号/关键字/CRLF/`set -e` 陷阱） | 本地或服务器 |
+| ⑥ | `06_verify_bash_structure.py` | 静态检查 bash 结构 + 核对默认路径 | 本地或服务器 |
 
 > 注：③④⑤⑥ 无第三方依赖（④ 的绘图在无 matplotlib 时自动降级为 CSV+文本）。
+> ③ 会自动在同目录下查找 ④，因此两者**必须放在同一目录**。
 
 ---
 
@@ -94,20 +98,12 @@ Identification of gene family members/
 
 ---
 
-## 四、运行步骤（服务器）
+## 四、运行步骤
 
-### 1. 准备
+脚本**自动识别本项目的文件路径**，不需要先搬文件、也不需要写一堆 `--query/--db-fasta`。
+把项目整个拷到服务器（或用 git clone），加载 BLAST+ 后直接跑即可。
 
-```bash
-mkdir -p ~/trm_blast/{db,query,out}
-# 上传:  01_At_TRM_query_34.fasta  -> ~/trm_blast/query/TRM_34.fasta
-#        Zunla_Canz.pep.fa         -> ~/trm_blast/db/Canz.pep.fa
-#        02_At_TRM_annotation.tsv  -> ~/trm_blast/   (给 --map 用)
-#        03_trm_blast_pipeline.sh  -> ~/trm_blast/
-#        04_summarize_candidates.py -> ~/trm_blast/  (与 03 同目录)
-```
-
-### 2. 加载 BLAST+（三选一）
+### 1. 加载 BLAST+（三选一）
 
 ```bash
 module load blast+/2.14.0        # HPC
@@ -116,40 +112,61 @@ conda activate blast             # conda
 blastp -version                  # 必须 >= 2.9（否则无 qcovhsp 字段）
 ```
 
-### 3. 一键运行
+### 2. 一键运行（零参数）
+
+```bash
+cd 02_script_output
+bash 03_trm_blast_pipeline.sh
+```
+
+就这样。默认值全部相对脚本自身定位，**在任意目录下调用都能正确解析**：
+
+| 参数 | 默认值（自动识别） |
+|---|---|
+| `--query` | `02_script_output/01_At_TRM_query_34.fasta`（34 条代表蛋白） |
+| `--db-fasta` | `01_At_TRM_query/Zunla_Canz.pep.fa`（52,385 条） |
+| `--map` | `02_script_output/02_At_TRM_annotation.tsv`（Query 注释表） |
+| `--outdir` | `05_blast_results/`（结果输出，脚本自动创建） |
+| `--threads` | `4` |
+
+**只调线程数**（常见需求）：
+
+```bash
+bash 03_trm_blast_pipeline.sh --threads 16
+```
+
+**文件放在别处时**再显式指定（其余仍走默认）：
 
 ```bash
 bash 03_trm_blast_pipeline.sh \
-  --query     query/TRM_34.fasta \
-  --db-fasta  db/Canz.pep.fa \
-  --outdir    out \
-  --threads   8 \
-  --evalue    1e-5 \
-  --ident     30 \
-  --cov       50 \
-  --map       02_At_TRM_annotation.tsv
+  --query    /path/to/TRM_34.fasta \
+  --db-fasta /path/to/Canz.pep.fa \
+  --outdir   /path/to/out
 ```
 
-`--help` 看全部参数。流水线每阶段打印进度，全程落盘到 `out/01_diagnostics.txt`，
-结束给出核心数字与判读建议。
+`--help` 看全部参数。流水线每阶段打印进度，全程落盘到
+`05_blast_results/01_diagnostics.txt`，结束给出核心数字与判读建议。
 
-### 4. 产出文件
+> 前序脚本支持 `TRM_INPUT_DIR` / `TRM_OUTPUT_DIR` 环境变量覆盖输入输出目录，
+> 便于隔离测试；流水线本身用命令行参数即可。
+
+### 3. 产出文件（均在 `05_blast_results/` 下）
 
 | # | 文件 | 作用 |
 |---|---|---|
-| ① | `out/TRM_vs_Zunla.blast.tsv` | 原始 BLAST 结果（15 列，一对多） |
-| ② | `out/TRM_candidates_protein_level.txt` | 去重候选**蛋白** ID（含 isoform） |
-| ② | `out/TRM_candidates_gene_level.txt` | 去重候选**基因** ID ← **家族规模看这个** |
-| ③ | `out/Zunla_TRM_candidate_proteins.fasta` | 去重候选蛋白 FASTA（建树直接可用） |
-| A1 | `out/01_candidate_summary.tsv` | 候选表：query / At基因 / TRM符号 / Zunla ID / I / E / bitscore / C / 档位 |
-| A2 | `out/01_candidate_counts.tsv` | 每 query 候选数 |
-| A3 | `out/01_best_hit_per_query.tsv` | 每 query 最佳命中 |
-| A4 | `out/01_zero_hit_queries.txt` | 零命中 query |
-| A5 | `out/01_distribution.tsv` | I/C 分箱频数表 |
-| A6 | `out/01_plots.png` | 三联图（覆盖率/一致性直方图 + 散点图，带阈值线） |
-| A7 | `out/01_summary_stats.txt` | 统计报告 + 断崖检测 + 中文判读建议 |
-| A8 | `out/Zunla_TRM_candidate_proteins_genelevel.fasta` | 基因级候选全部 isoform |
-| A9 | `out/01_diagnostics.txt` | 全流程日志 |
+| ① | `TRM_vs_Zunla.blast.tsv` | 原始 BLAST 结果（15 列，一对多） |
+| ② | `TRM_candidates_protein_level.txt` | 去重候选**蛋白** ID（含 isoform） |
+| ② | `TRM_candidates_gene_level.txt` | 去重候选**基因** ID ← **家族规模看这个** |
+| ③ | `Zunla_TRM_candidate_proteins.fasta` | 去重候选蛋白 FASTA（建树直接可用） |
+| A1 | `01_candidate_summary.tsv` | 候选表：query / At基因 / TRM符号 / Zunla ID / I / E / bitscore / C / 档位 |
+| A2 | `01_candidate_counts.tsv` | 每 query 候选数 |
+| A3 | `01_best_hit_per_query.tsv` | 每 query 最佳命中 |
+| A4 | `01_zero_hit_queries.txt` | 零命中 query |
+| A5 | `01_distribution.tsv` | I/C 分箱频数表 |
+| A6 | `01_plots.png` | 三联图（覆盖率/一致性直方图 + 散点图，带阈值线） |
+| A7 | `01_summary_stats.txt` | 统计报告 + 断崖检测 + 中文判读建议 |
+| A8 | `Zunla_TRM_candidate_proteins_genelevel.fasta` | 基因级候选全部 isoform |
+| A9 | `01_diagnostics.txt` | 全流程日志 |
 
 ---
 
@@ -161,10 +178,17 @@ bash 03_trm_blast_pipeline.sh \
 cd 02_script_output
 python 05_verify_pipeline_logic.py                            # 22 条断言
 python 06_verify_bash_structure.py 03_trm_blast_pipeline.sh   # bash 结构静态检查
+python 06_verify_bash_structure.py --check-defaults 03_trm_blast_pipeline.sh
+                                                              # 核对零参数默认路径是否可用
 ```
 
+`--check-defaults` 会复刻流水线的路径探测逻辑，逐项确认 `--query`（34 条）、
+`--db-fasta`（52,385 条）、`--map` 的默认路径在磁盘上真实存在、条数正确，
+**确保"一键运行"不会因找不到文件而失败**。
+
 已验证通过：阈值边界（`I=30/C=50/E=1e-5` 恰好通过，`29.99/49/1e-4` 被排除）、
-三档互斥、isoform 剥离（含两位数 `.12`）、零命中识别、最佳命中按 bitscore 取值。
+三档互斥、isoform 剥离（含两位数 `.12`）、零命中识别、最佳命中按 bitscore 取值、
+默认路径解析。
 
 **端到端复现测试**（隔离临时目录重跑前序流水线）已通过：`01_extract` + `02_select`
 的四个产出与项目内 `01_At_TRM_query_34.fasta`、`02_At_TRM_annotation.tsv`、
