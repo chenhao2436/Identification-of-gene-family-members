@@ -1,1 +1,38 @@
+# 版本控制忽略规则（仓库根 = Identification_of_gene_family_members/）
+#
+# 说明：本项目含大体积参考数据（Zunla 蛋白组 21 MB、Araport11 8.5 MB），
+#      不建议纳入 git，另行传输；临时文件目录同理。
+
+# ---- 大体积参考数据（另行传输，不入库）----
+01_At_TRM_query/Zunla_Canz.pep.fa
+01_At_TRM_query/Araport11_pep_20250411.gz
+
+# ---- BLAST 运行产物（在服务器生成，体积与机器相关）----
+*.blast.tsv
+*.pdb
+*.phr
+*.pin
+*.psq
+*.pot
+*.ptf
+*.pto
+*.pjs
+Canz.pep.*
+
+# ---- 临时文件目录 ----
+04_temp/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# ---- 系统与办公软件 ----
+~$*
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- Claude Code 本地设置 ----
 .claude/settings.local.json

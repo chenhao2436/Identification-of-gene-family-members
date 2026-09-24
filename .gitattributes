@@ -1,0 +1,9 @@
+# ---- 换行符策略 ----
+# core.autocrlf=true 时，Windows 检出会把工作区文本转成 CRLF。
+# shell 脚本含 CRLF 传到 Linux 服务器后 bash 会报 $'\r' 错误；
+# FASTA/TSV 行尾的 \r 也会污染解析。以下类型强制 LF。
+*.sh    text eol=lf
+*.py    text eol=lf
+*.tsv   text eol=lf
+*.fasta text eol=lf
+*.txt   text eol=lf
