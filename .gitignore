@@ -22,6 +22,27 @@ Canz.pep.*
 # ---- 临时文件目录 ----
 04_temp/
 
+# ---- HMMER 流程运行产物（体积大、可重跑，不入库；脚本与文档保留）----
+06_hmmer_results/01_env_check/*
+06_hmmer_results/02_msa/*
+06_hmmer_results/03_hmmbuild/*
+06_hmmer_results/04_hmmsearch/*
+06_hmmer_results/05_merge/*
+06_hmmer_results/06_domain/*
+06_hmmer_results/07_final/*
+# 各阶段目录本身保留（.gitkeep），只忽略其中的文件
+!06_hmmer_results/**/.gitkeep
+
+# ---- HMMER 相关大文件 ----
+*.hmm
+*.h3f
+*.h3i
+*.h3m
+*.h3p
+*.domtblout
+*.tblout
+Pfam-A.*
+
 # ---- Python ----
 __pycache__/
 *.pyc

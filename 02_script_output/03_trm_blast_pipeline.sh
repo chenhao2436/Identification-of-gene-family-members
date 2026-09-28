@@ -257,15 +257,19 @@ FRAG_TSV="${OUTDIR}/TRM_candidates_fragment.tsv"
 SUMMARY="${OUTDIR}/01_candidate_summary.tsv"
 
 # 主候选: E<=EVALUE 且 pident>=IDENT 且 qcovhsp>=COV
-awk -F'\t' -v OFS='\t' -v E="$EVALUE" -v I="$IDENT" -v C="$COV" \
-  '($11+0) <= (E+0) && ($3+0) >= I && ($15+0) >= C' "$BL_TSV" > "$MAIN_TSV"
+# 注意: E 必须以**数值**传给 awk，不要写成 -v E="$EVALUE" 后用 (E+0)。
+#       "1e-5" 若被当字符串走 (E+0)，awk 的 strtod 会按十进制解析成 1，
+#       于是条件退化为 E<=1，E 值过滤形同失效（实测踩到过）。
+awk -F'\t' -v OFS='\t' -v E=$EVALUE -v I="$IDENT" -v C="$COV" \
+  '($11+0) <= E && ($3+0) >= I && ($15+0) >= C' "$BL_TSV" > "$MAIN_TSV"
 
 # 高可信档: cov>=70 且 E<=1e-10
+# 同理: 1e-10 必须直接写成数值字面量，不能用 +0 强转
 awk -F'\t' -v OFS='\t' '($15+0) >= 70 && ($11+0) <= 1e-10' "$BL_TSV" > "$HIGH_TSV"
 
 # 片段待查档: 满足 E 值但覆盖度不足
-awk -F'\t' -v OFS='\t' -v E="$EVALUE" -v C="$COV" \
-  '($11+0) <= (E+0) && ($15+0) < C' "$BL_TSV" > "$FRAG_TSV"
+awk -F'\t' -v OFS='\t' -v E=$EVALUE -v C="$COV" \
+  '($11+0) <= E && ($15+0) < C' "$BL_TSV" > "$FRAG_TSV"
 
 N_MAIN="$(wc -l < "$MAIN_TSV" | tr -d ' ')"
 N_HIGH="$(wc -l < "$HIGH_TSV" | tr -d ' ')"
@@ -275,17 +279,23 @@ log "主候选 HSP: $N_MAIN   高可信 HSP: $N_HIGH   片段待查 HSP: $N_FRAG
 
 # 汇总表: 拼上 At 基因号与 TRM 符号(可选映射表)
 # 映射表格式(scripts/02 产出): gene  representative_transcript  gene_id  symbols ...
-{
+#
+# 注意: 表头与 awk 输出必须共用**同一次**重定向（下面子 shell 的 > "$SUMMARY"）。
+#       若让 awk 自带 `> "$SUMMARY"`，它会在组内二次打开并截断文件，把表头冲掉
+#       —— 这正是此前 01_candidate_summary.tsv 丢失表头的原因。
+(
   printf 'query\ttrm_gene\ttrm_symbol\tzunla_protein\tzunla_gene\tpident\tevalue\tbitscore\tqcovhsp\ttier\n'
   if [[ -n "$MAPFILE" && -f "$MAPFILE" ]]; then
-    awk -F'\t' -v OFS='\t' -v E="$EVALUE" -v I="$IDENT" -v C="$COV" '
+    # 注意: tier 里的 E 阈值必须写成 1e-10（数值字面量），
+    #       若用 ($11+0)<=1e-10 会因 +0 强转十进制而变成 <=1，tier 判定失效。
+    awk -F'\t' -v OFS='\t' -v I="$IDENT" -v C="$COV" '
       NR==FNR { if (FNR>1) { g[$2]=$1; s[$2]=$4 } next }
       {
         q=$1
         tier = (($15+0)>=70 && ($11+0)<=1e-10) ? "highconf" : "candidate"
         gid = $2; sub(/\.[0-9]+$/, "", gid)
         print q, (q in g ? g[q] : "NA"), (q in s ? s[q] : "NA"), $2, gid, $3, $11, $12, $15, tier
-      }' "$MAPFILE" "$MAIN_TSV" > "$SUMMARY"
+      }' "$MAPFILE" "$MAIN_TSV"
   else
     warn "未提供 --map 映射表, At 基因号列填 NA(建议传 TRM_representative_proteins.tsv)"
     awk -F'\t' -v OFS='\t' '
@@ -293,9 +303,9 @@ log "主候选 HSP: $N_MAIN   高可信 HSP: $N_HIGH   片段待查 HSP: $N_FRAG
         tier = (($15+0)>=70 && ($11+0)<=1e-10) ? "highconf" : "candidate"
         gid = $2; sub(/\.[0-9]+$/, "", gid)
         print $1, "NA", "NA", $2, gid, $3, $11, $12, $15, tier
-      }' "$MAIN_TSV" > "$SUMMARY"
+      }' "$MAIN_TSV"
   fi
-} 
+) > "$SUMMARY"
 log "A1 候选汇总表: $SUMMARY"
 
 # =============================================================================

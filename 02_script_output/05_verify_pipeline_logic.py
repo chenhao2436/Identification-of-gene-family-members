@@ -255,6 +255,31 @@ def main():
     c.true(float("1e-5") <= EVALUE, "1e-5 应判定为达标")
     c.true(not (float("1.000001e-5") <= EVALUE), "1.000001e-5 应判定为不达标")
 
+    # ---- 回归: 科学计数法阈值必须按数值解析 ----
+    # 曾踩坑: awk 侧写成 -v E="$EVALUE" 且条件用 (E+0)，awk 的 strtod 读 "1e-5"
+    # 时按十进制停在第一个非数字处，得到 1 —— 于是 E<=1e-5 退化成 E<=1，
+    # E 值过滤形同失效。正确做法是传数值字面量(-v E=1e-5)且条件不写 +0。
+    def awk_strtod(s):
+        """复刻 awk 的 strtod：读到非数字即停（不识别指数，按下十进制解析）"""
+        out = ""
+        for ch in s:
+            if ch.isdigit() or ch in "+-.":
+                out += ch
+            else:
+                break
+        try:
+            return float(out)
+        except ValueError:
+            return 0.0
+
+    c.eq(awk_strtod("1e-5"), 1.0, "awk strtod('1e-5') 应为 1 —— 正是该 bug 的来源")
+    c.eq(awk_strtod("1e-10"), 1.0, "awk strtod('1e-10') 应为 1")
+    c.true(float("1e-5") != awk_strtod("1e-5"),
+           "必须区分「数值字面量」与「字符串强转」，否则阈值失效")
+    c.true(not (1e-3 <= 1e-5), "E=1e-3 应被 1e-5 排除")
+    c.true(1e-3 <= awk_strtod("1e-5"),
+           "...而旧的 (E+0)<=1 会错误放行它（bug 复现）")
+
     # ---- 报告 ----
     print("=" * 66)
     print("trm_blast_pipeline.sh 核心逻辑验证")

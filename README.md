@@ -1,7 +1,27 @@
 # 拟南芥 TRM 基因家族成员鉴定（Zunla 辣椒）
 
-用拟南芥 TRM 家族 34 条代表蛋白作 query，比对 Zunla 辣椒蛋白组，鉴定辣椒中的
-TRM 候选家族成员。本目录是该工作的**独立项目包**，自带输入、脚本与全部产出。
+用拟南芥 TRM 家族 34 条代表蛋白作 query，鉴定 Zunla 辣椒中的 TRM 家族成员。
+本目录是该工作的**独立项目包**，自带输入、脚本与全部产出。
+
+**两阶段流程**：
+
+```
+第一阶段：BLASTP 初筛                     第二阶段：HMMER 精筛与确认
+  34 条 AtTRM                              34 条 AtTRM
+      │                                        │  MAFFT 比对
+      ▼  blastp vs Zunla 全蛋白                ▼  hmmbuild → TRM.hmm
+  BLAST 候选（24 基因 / 39 蛋白）           hmmsearch 扫描 Zunla 全蛋白
+      │                                        │
+      └──────────────┬─────────────────────────┘
+                     ▼  并集合并去重（按 gene）
+              标注 BLAST+HMM / BLAST-only / HMM-only / HMM-inclusive-only
+                     ▼  Pfam 结构域核查（PF14309 等）
+                     ▼  分层：conservative / standard / review
+                  最终 CaTRM 基因/蛋白列表
+```
+
+- **第一阶段** → `02_script_output/` + `05_blast_results/`
+- **第二阶段** → `06_hmmer_results/`（详见 [README_hmmer.md](06_hmmer_results/README_hmmer.md)）
 
 ---
 
@@ -16,13 +36,39 @@ Identification_of_gene_family_members/
 │   └── TRM基因家族注释表.xlsx           你提供的 TRM 家族注释表
 │                                      （BLAST query 在 02_script_output/①）
 │
-├── 02_script_output/                 ★ 六个核心文件 + 运行脚本
+├── 02_script_output/                 ★ 第一阶段：六个核心文件 + 运行脚本
 │   ├── 01_At_TRM_query_34.fasta        ★① BLAST query：34 条 TRM 代表蛋白
 │   ├── 02_At_TRM_annotation.tsv        ★② query 注释表（基因/转录本/TRM符号/长度）
 │   ├── 03_trm_blast_pipeline.sh        ★③ BLAST 鉴定流水线（一键运行）
 │   ├── 04_summarize_candidates.py      ★④ 候选统计与出图
 │   ├── 05_verify_pipeline_logic.py     ★⑤ 流水线逻辑验证（22 条断言）
 │   └── 06_verify_bash_structure.py     ★⑥ bash 结构校验器（含默认路径检查）
+│
+├── 05_blast_results/                 第一阶段产出：BLAST 候选
+│   ├── TRM_vs_Zunla.blast.tsv          原始结果（一对多）
+│   ├── TRM_candidates_gene_level.txt   ★ 候选基因 ID（24）
+│   ├── TRM_candidates_protein_level.txt ★ 候选蛋白 ID（39）
+│   ├── Zunla_TRM_candidate_proteins.fasta
+│   └── 01_*.tsv|txt|png                统计表/报告/分布图
+│
+├── 06_hmmer_results/                 ★ 第二阶段：HMMER 精筛与家族确认
+│   ├── README_hmmer.md                 流程说明（方法/参数/判读，可写进论文）
+│   ├── scripts/                        7 个阶段脚本 + 主入口（分阶段可单独执行）
+│   │   ├── run.sh                      主入口：bash run.sh <01-07|all>
+│   │   ├── common.sh                   共享配置与工具函数
+│   │   ├── stage_01_env_check.sh       环境与输入文件检查（只读）
+│   │   ├── stage_02_msa.sh             MAFFT 比对
+│   │   ├── stage_03_hmmbuild.sh        建立 TRM.hmm
+│   │   ├── stage_04_hmmsearch.sh       扫描 Zunla 全蛋白
+│   │   ├── stage_05_merge.sh           与 BLAST 候选合并
+│   │   ├── stage_06_domain.sh          Pfam 结构域核查
+│   │   ├── stage_07_final.sh           汇总最终 CaTRM 列表
+│   │   ├── parse_hmmsearch_domtbl.py   解析 hmmsearch（纯标准库）
+│   │   ├── parse_hmmscan_domtbl.py     解析 hmmscan（纯标准库）
+│   │   ├── merge_blast_hmm.py          合并去重（四类证据标签）
+│   │   ├── final_summary.py            最终列表 + 证据与理由
+│   │   └── test_hmmer_parsers.py       合成数据测试（53 条断言）
+│   └── 01_env_check/ … 07_final/       各阶段产出（运行后生成）
 │
 ├── 03_auxiliary/                     辅助材料（前序步骤与备查）
 │   ├── 00_peek_fasta_format.py         FASTA 头格式查看
@@ -37,16 +83,13 @@ Identification_of_gene_family_members/
 ├── 04_temp/                          ★ 临时文件（可随时清理，不入 git）
 │   ├── README.md                       本目录说明与 SnapGene 文件注意事项
 │   └── SnapGene_prot_files/            34 个 SnapGene 二进制 .prot（非 FASTA，不可用于 BLAST）
-│
-└── 05_blast_results/                 ★ 运行产物（首次运行时自动创建）
-    └── ...                             原始结果 / 候选 ID / 候选 FASTA / 统计图
 ```
 
-> 版本控制忽略规则在本仓库根的 `.gitignore`（忽略两个大参考数据文件、BLAST 产物与 `04_temp/`）。
+> 版本控制忽略规则在本仓库根的 `.gitignore`（忽略两个大参考数据文件、BLAST/HMMER 运行产物与 `04_temp/`）。
 
 ---
 
-## 二、六个核心文件说明
+## 二、第一阶段：六个核心文件说明
 
 | # | 文件 | 作用 | 在哪运行 |
 |---|---|---|---|

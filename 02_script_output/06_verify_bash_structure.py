@@ -32,14 +32,44 @@ def is_case_label(code):
     return bool(CASE_LABEL_RE.match(s))
 
 
-def strip_quotes_stateful(line, in_single):
+def is_case_oneliner(code):
+    """
+    识别 case 单行写法，如:
+        case "$x" in *.gz) CAT=zcat ;; esac
+    这种行里的 `)` 是标签结束符，整个 case 也自成一体（case/esac 同行），
+    因此不应计入括号深度，也不应参与关键字配对。
+    """
+    return ("case" in code and "esac" in code)
+
+
+def starts_awk_program(code):
+    """
+    判断该行是否是一段 awk 程序的起始（或本身就含 awk 程序）。
+    awk 程序内部有 if/for/while 等词，会被误当成 shell 关键字，需要跳过关键字配对。
+    依据: 行首或管道后紧接 awk。
+    """
+    s = code.strip()
+    return bool(re.match(r"^(?:\|\s*)?awk\b", s))
+
+
+def starts_heredoc_program(code):
+    """行首或管道后紧接 python3 - <<'EOF' / cat <<EOF 等，交由 heredoc 分支处理。"""
+    return bool(re.search(r"(?:^|\|)\s*(?:python3?|cat|tee)\b.*<<-?\s*['\"]?\w+", code))
+
+
+def strip_quotes_stateful(line, in_single, in_double=False):
     """
     剥离单引号/双引号内容；单引号状态跨行保持（bash 允许跨行单引号串）。
-    返回 (剥离后的代码, 行末是否仍在单引号内)。
+
+    关键细节：只在「另一种引号内部」时忽略引号字符。
+    例如 echo "... '>' ..." 里的单引号处于双引号内，是普通字符，
+    不能当作单引号串的起始——否则状态机会错位，后续整段代码被跳过。
+    （这类错位曾导致 'if' 配对、$# 注释等一连串误报。）
+
+    返回 (剥离后的代码, 行末是否仍在单引号内, 行末是否仍在双引号内)。
     """
     out = []
     i = 0
-    in_d = False
     n = len(line)
     while i < n:
         ch = line[i]
@@ -48,24 +78,30 @@ def strip_quotes_stateful(line, in_single):
                 in_single = False
             i += 1
             continue
-        if ch == "'" and not in_d:
+        if in_double:
+            if ch == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if ch == "'":
             in_single = True
             i += 1
             continue
-        if ch == '"' and not in_single:
-            in_d = not in_d
+        if ch == '"':
+            in_double = True
             i += 1
             continue
         if ch == "\\" and i + 1 < n:
             i += 2
             continue
-        # bash 里 `#` 只有在“词首”（前一个字符是空白或行首）才是注释起始。
-        # 否则 `$#`（参数个数）、`${VAR#pat}` 会被误当注释，截断代码。
-        if ch == "#" and not in_d and (i == 0 or line[i - 1] in " \t;"):
+        if ch == "#" and (i == 0 or line[i - 1] in " \t;"):
             break
         out.append(ch)
         i += 1
-    return "".join(out), in_single
+    return "".join(out), in_single, in_double
 
 
 def check_file(path):
@@ -92,6 +128,7 @@ def check_file(path):
     heredoc = None
     heredoc_count = 0
     in_single = False          # 跨行单引号状态
+    in_double = False          # 跨行双引号状态
 
     for ln, line in enumerate(lines, 1):
         stripped = line.strip()
@@ -104,8 +141,8 @@ def check_file(path):
             continue
 
         # 处于跨行单引号串内部（如 usage() 的文档块），整行跳过
-        if in_single:
-            _, in_single = strip_quotes_stateful(line, True)
+        if in_single or in_double:
+            _, in_single, in_double = strip_quotes_stateful(line, in_single, in_double)
             continue
 
         # 检测 heredoc 起始（<<EOF / <<'EOF' / <<"EOF"）
@@ -114,14 +151,16 @@ def check_file(path):
             heredoc = m.group(1)
             continue
 
-        code, in_single = strip_quotes_stateful(line, False)
+        code, in_single, in_double = strip_quotes_stateful(line, False, False)
 
         # case 分支标签行：`--query)` / `*)` 里的 ')' 是标签结束符，不是语法闭合；
         # 标签后的消息文本里也可能含括号（如 `die "...(...)..."`），一并跳过，
         # 否则会造成假的不配对。
+        # case 单行写法（case ... in pat) ... ;; esac）同理整行跳过。
         case_label = is_case_label(code)
+        case_one = is_case_oneliner(code)
 
-        if not case_label:
+        if not case_label and not case_one:
             depth_paren += code.count("(") - code.count(")")
             if depth_paren < 0:
                 problems.append("第 %d 行: 右括号 ')' 多于 '('" % ln)
@@ -133,30 +172,39 @@ def check_file(path):
             depth_brace = 0
 
         # 关键字配对（只看剥离后的代码 token）
-        toks = re.findall(r"\b(if|fi|do|done|case|esac|for|while|until)\b", code)
-        # `while ...` / `for ...` 与 `do` 分处两行时，块开始是那行 `do`，
-        # 此时不要把循环关键字当作块开始，否则 done 会配不上。
-        if ("for" in toks or "while" in toks or "until" in toks) and "do" not in toks:
-            toks = [t for t in toks if t not in ("for", "while", "until")]
+        # 跳过情况:
+        #   * case 单行写法 / case 分支标签 —— 不是常规块结构
+        #   * awk 程序（awk 自带 if/for/while，会污染配对）
+        #   * heredoc 起始行
+        skip_kw = case_one or case_label or starts_awk_program(code)
+        if not skip_kw:
+            toks = re.findall(r"\b(if|fi|do|done|case|esac|for|while|until)\b", code)
+            # `while ...` / `for ...` 与 `do` 分处两行时，块开始是那行 `do`，
+            # 此时不要把循环关键字当作块开始，否则 done 会配不上。
+            if ("for" in toks or "while" in toks or "until" in toks) and "do" not in toks:
+                toks = [t for t in toks if t not in ("for", "while", "until")]
+            # `if ...; then ...; fi` 同一行内自平衡，直接不计
+            if "if" in toks and "fi" in toks and toks.count("if") == toks.count("fi"):
+                toks = [t for t in toks if t not in ("if", "fi")]
 
-        for t in toks:
-            if t in ("if", "do", "case"):
-                kw_stack.append((t, ln))
-            elif t == "fi":
-                if kw_stack and kw_stack[-1][0] == "if":
-                    kw_stack.pop()
-                else:
-                    problems.append("第 %d 行: 多余的 'fi'（无匹配 if）" % ln)
-            elif t == "done":
-                if kw_stack and kw_stack[-1][0] == "do":
-                    kw_stack.pop()
-                else:
-                    problems.append("第 %d 行: 多余的 'done'（无匹配 do）" % ln)
-            elif t == "esac":
-                if kw_stack and kw_stack[-1][0] == "case":
-                    kw_stack.pop()
-                else:
-                    problems.append("第 %d 行: 多余的 'esac'（无匹配 case）" % ln)
+            for t in toks:
+                if t in ("if", "do", "case"):
+                    kw_stack.append((t, ln))
+                elif t == "fi":
+                    if kw_stack and kw_stack[-1][0] == "if":
+                        kw_stack.pop()
+                    else:
+                        problems.append("第 %d 行: 多余的 'fi'（无匹配 if）" % ln)
+                elif t == "done":
+                    if kw_stack and kw_stack[-1][0] == "do":
+                        kw_stack.pop()
+                    else:
+                        problems.append("第 %d 行: 多余的 'done'（无匹配 do）" % ln)
+                elif t == "esac":
+                    if kw_stack and kw_stack[-1][0] == "case":
+                        kw_stack.pop()
+                    else:
+                        problems.append("第 %d 行: 多余的 'esac'（无匹配 case）" % ln)
 
     if heredoc is not None:
         problems.append("heredoc 未闭合，缺少结束标记 '%s'" % heredoc)
