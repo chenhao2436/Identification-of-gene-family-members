@@ -1,0 +1,81 @@
+[11:21:02] trm_blast_pipeline.sh v2.0
+[11:21:02] query=/data2/chenh/gene_famaily_analysis/wide_gene_family/02_script_output/01_At_TRM_query_34.fasta
+[11:21:02] db   =/data2/chenh/gene_famaily_analysis/wide_gene_family/01_At_TRM_query/Zunla_Canz.pep.fa
+[11:21:02] out  =/data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results
+[11:21:02] map  =/data2/chenh/gene_famaily_analysis/wide_gene_family/02_script_output/02_At_TRM_annotation.tsv
+[11:21:02] 阈值: E<=1e-5  identity>=25%  coverage>=30%  线程=4
+
+========== 阶段 0: 输入校验与环境检查 ==========
+[11:21:03] BLAST+ 版本: 2.16.0  (满足 >= 2.9)
+[11:21:03] query 序列数: 34
+[11:21:03] db    序列数: 52385
+[11:21:03] query 文件类型: ASCII text
+
+========== 阶段 1: 建立 BLAST 蛋白库 ==========
+[警告] 已存在库与 /data2/chenh/gene_famaily_analysis/wide_gene_family/01_At_TRM_query/Zunla_Canz.pep.fa 不一致(库记录=无, 当前=52385 21492473), 自动重建
+
+
+Building a new DB, current time: 09/25/2026 11:21:03
+New DB name:   /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/Canz.pep
+New DB title:  Zunla_capsicum_pep
+Sequence type: Protein
+Deleted existing Protein BLAST database named /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/Canz.pep
+Keep MBits: T
+Maximum file size: 3000000000B
+Adding sequences from FASTA; added 52385 sequences in 1.82204 seconds.
+
+
+[11:21:05] 库信息: Database: Zunla_capsicum_pep 	52,385 sequences; 20,285,222 total residues
+
+========== 阶段 2: 第一轮 blastp -> ① 原始 BLAST 结果 ==========
+[11:21:05] 运行 blastp (线程 4) ...
+[11:21:10] ① 原始结果: /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/TRM_vs_Zunla.blast.tsv  (199 行 HSP)
+
+========== 阶段 3: 过滤 + 分档 -> A1 候选汇总表 ==========
+[11:21:10] 主候选 HSP: 121   高可信 HSP: 56   片段待查 HSP: 68
+query	trm_gene	trm_symbol	zunla_protein	zunla_gene	pident	evalue	bitscore	qcovhsp	tier
+[11:21:11] A1 候选汇总表: /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/01_candidate_summary.tsv
+
+========== 阶段 4: 去重 -> ② 候选 ID(蛋白级 + 基因级) ==========
+[11:21:11] ② 候选蛋白(含 isoform): 39 条 -> /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/TRM_candidates_protein_level.txt
+[11:21:11] ② 候选基因(去 isoform): 24 个 -> /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/TRM_candidates_gene_level.txt
+
+========== 阶段 5: 抽取候选蛋白序列 -> ③ 去重 FASTA ==========
+[警告] blastdbcmd 基因级取序列失败(库可能未加 -parse_seqids), 回退纯 awk 提取
+[11:21:13] ③ 候选蛋白 FASTA: /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/Zunla_TRM_candidate_proteins.fasta (39 条)
+[11:21:13]    基因级 FASTA  : /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/Zunla_TRM_candidate_proteins_genelevel.fasta (0 条)
+
+========== 阶段 6: 辅助统计 ==========
+[11:21:13] A2 每query候选数 / A3 最佳命中 / A4 零命中(2 条)
+
+========== 阶段 7: 分布统计与出图 ==========
+[11:21:13] 调用统计脚本: /data2/chenh/gene_famaily_analysis/wide_gene_family/02_script_output/04_summarize_candidates.py
+  分布统计完成:
+    /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/01_distribution.tsv
+    /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/01_summary_stats.txt
+    /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/01_candidate_counts.tsv
+    /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/01_plots.png
+    ★ 候选基因数 24，候选蛋白数 39
+
+========== 阶段 8: 完成 ==========
+
+=================== 流水线完成 ===================
+① 原始 BLAST 结果 : /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/TRM_vs_Zunla.blast.tsv
+② 候选蛋白 ID     : /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/TRM_candidates_protein_level.txt  (39 条)
+   候选基因 ID     : /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/TRM_candidates_gene_level.txt  (24 个)
+③ 候选蛋白 FASTA  : /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/Zunla_TRM_candidate_proteins.fasta
+辅助文件           : /data2/chenh/gene_famaily_analysis/wide_gene_family/05_blast_results/01_*.tsv|txt|png
+
+核心数字
+  候选基因数(去 isoform) : 24      <-- 你的候选家族规模
+  候选蛋白数(含 isoform) : 39
+  高可信 HSP             : 56
+  片段待查 HSP           : 68
+  零命中 query           : 2
+
+判读建议
+  * 候选基因数 <20 -> 偏少, 用 --evalue 1e-3 重跑
+  * 候选基因数 >100 -> 偏多, 用 --ident 30 --cov 70 --evalue 1e-10 重跑
+  * 优先看 01_distribution.tsv 里 coverage 的分布断崖, 它比 identity 更干净
+  * 零命中的 query 记录为该亚家族可能拟南芥特有/辣椒丢失, 本身是结论
+==================================================

@@ -40,8 +40,8 @@ def parse_args():
     ap.add_argument("--blast", required=True, help="15 列 BLAST TSV")
     ap.add_argument("--query", default="", help="query FASTA（统计总条数）")
     ap.add_argument("--outdir", default="out", help="输出目录")
-    ap.add_argument("--ident", type=float, default=30.0, help="identity 阈值")
-    ap.add_argument("--cov", type=float, default=50.0, help="coverage 阈值")
+    ap.add_argument("--ident", type=float, default=25.0, help="identity 阈值")
+    ap.add_argument("--cov", type=float, default=30.0, help="coverage 阈值")
     ap.add_argument("--evalue", default="1e-5", help="E-value 阈值")
     return ap.parse_args()
 

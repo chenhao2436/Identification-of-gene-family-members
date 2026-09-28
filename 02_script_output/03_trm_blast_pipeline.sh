@@ -15,10 +15,14 @@
 #     outdir  = 05_blast_results/                              (结果输出)
 # 若你的文件放别处，用 --query / --db-fasta / --map / --outdir 覆盖即可。
 #
-# 阈值（已定稿）:
-#   E-value <= 1e-5 且 identity >= 30% 且 query coverage >= 50%
-#   理由: TRM 富含重复序列, identity 天然偏低(卡 50% 会漏真成员);
-#         coverage 才是主力过滤器(排除"仅局部重复区匹配"的假阳性)。
+# 阈值:
+#   E-value <= 1e-5 且 identity >= 25% 且 query coverage >= 30%
+#   理由(本数据集实测校正): TRM 成员互为同源时只在 C 端 TRM 结构域那一段对齐,
+#     N 端 MORN 重复高度发散, 真直系同源的全长 query 覆盖率只有 26-46%
+#     (例: ZLC10G0016260 vs AT5G02390, cov=99% 但 pident=29.0%, E=3.7e-82)。
+#     故 cov 只作粗筛、不能当主力过滤器; 长比对 pident 天然偏低, 硬卡 30%
+#     会把 E 值最好的一批全长命中挡在门外。特异度由 E-value 承担。
+#   收紧可复现旧口径: --ident 30 --cov 50 (候选 18 个)。
 #
 # 产出（均在 --outdir 下）:
 #   ① TRM_vs_Zunla.blast.tsv                     原始 BLAST 结果
@@ -26,6 +30,10 @@
 #     TRM_candidates_gene_level.txt               去重候选基因 ID(剥离后缀)
 #   ③ Zunla_TRM_candidate_proteins.fasta          去重候选蛋白 FASTA
 #   辅助 01_*.tsv|txt|png, Zunla_TRM_candidate_proteins_genelevel.fasta
+#   ${DB_PREFIX}.stamp                           建库时记录的 FASTA 指纹
+#
+# 建库策略: 已有库且指纹(条数+字节数)与当前 FASTA 一致才跳过; 不一致自动重建。
+#           指纹文件缺失(老库)也视为不一致, 强制重建一次。
 # =============================================================================
 set -euo pipefail
 
@@ -37,8 +45,8 @@ DB_FASTA=""
 OUTDIR=""
 THREADS=4
 EVALUE="1e-5"
-IDENT=30
-COV=50
+IDENT=25
+COV=30
 MAX_TARGET=50
 DB_PREFIX=""
 FORCE=0
@@ -185,17 +193,30 @@ fi
 # =============================================================================
 step 1 "建立 BLAST 蛋白库"
 # =============================================================================
+# 库指纹 = 序列条数 + 文件字节数, 两者都是内容的确定性函数。
+# 只要 FASTA 被重新下载/截断/换成别的版本, 指纹必变 -> 自动重建。
+STAMP_FILE="${DB_PREFIX}.stamp"
+CUR_STAMP="$N_DB $(wc -c < "$DB_FASTA" | tr -d ' ')"
+OLD_STAMP="$(cat "$STAMP_FILE" 2>/dev/null || true)"
+
+NEED_BUILD=0
 if [[ -f "${DB_PREFIX}.pdb" || -f "${DB_PREFIX}.phr" || -f "${DB_PREFIX}.psq" ]]; then
   if (( FORCE == 1 )); then
     log "已存在库, --force 指定, 重新建库"
-    rm -f "${DB_PREFIX}".{pdb,phr,pin,psq,pot,ptf,pto,pjs}
-    makeblastdb -in "$DB_FASTA" -dbtype prot -out "$DB_PREFIX" \
-      -title "Zunla_capsicum_pep" -parse_seqids
+    NEED_BUILD=1
+  elif [[ "$CUR_STAMP" == "$OLD_STAMP" ]]; then
+    log "已存在库 ${DB_PREFIX}.* , 指纹与 $DB_FASTA 一致($CUR_STAMP), 跳过建库"
   else
-    log "已存在库 ${DB_PREFIX}.* , 跳过建库(需要重建请加 --force)"
+    warn "已存在库与 $DB_FASTA 不一致(库记录=${OLD_STAMP:-无}, 当前=$CUR_STAMP), 自动重建"
+    NEED_BUILD=1
   fi
 else
   log "建库中..."
+  NEED_BUILD=1
+fi
+
+if (( NEED_BUILD == 1 )); then
+  rm -f "${DB_PREFIX}".{pdb,phr,pin,psq,pot,ptf,pto,pjs}
   if ! makeblastdb -in "$DB_FASTA" -dbtype prot -out "$DB_PREFIX" \
         -title "Zunla_capsicum_pep" -parse_seqids; then
     warn "-parse_seqids 建库失败(可能 SeqId 重复), 回退为不解析 SeqId"
@@ -203,6 +224,7 @@ else
     makeblastdb -in "$DB_FASTA" -dbtype prot -out "$DB_PREFIX" \
       -title "Zunla_capsicum_pep"
   fi
+  printf '%s\n' "$CUR_STAMP" > "$STAMP_FILE"
 fi
 
 DB_INFO="$(blastdbcmd -db "$DB_PREFIX" -info 2>&1 | head -3 || true)"

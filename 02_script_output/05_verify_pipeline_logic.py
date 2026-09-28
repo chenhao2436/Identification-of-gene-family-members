@@ -18,8 +18,8 @@ import sys
 
 # ---------------- 与 pipeline 保持一致的参数 ----------------
 EVALUE = 1e-5
-IDENT = 30.0
-COV = 50.0
+IDENT = 25.0
+COV = 30.0
 HIGH_COV = 70.0
 HIGH_E = 1e-10
 
@@ -45,10 +45,10 @@ ROWS = [
     row("AT3G02170.1", "ZLC01G0000010.1", 78.5, 0.0,    95),   # 高可信
     row("AT3G02170.1", "ZLC01G0000020.2", 55.0, 1e-50,  80),   # 主候选
     # --- 边界：恰好等于阈值（应通过，>= 语义） ---
-    row("AT5G15580.1", "ZLC02G0000100.1", 30.0, 1e-5,   50),   # 恰在 I/C/E 三边界
+    row("AT5G15580.1", "ZLC02G0000100.1", 25.0, 1e-5,   30),   # 恰在 I/C/E 三边界
     # --- 边界：刚刚不达阈值（应排除） ---
-    row("AT1G18620.2", "ZLC03G0000200.1", 29.99, 1e-5,  50),   # I 差一点
-    row("AT1G18620.2", "ZLC03G0000300.1", 60.0, 1e-5,   49),   # C 差一点
+    row("AT1G18620.2", "ZLC03G0000200.1", 24.99, 1e-5,  30),   # I 差一点
+    row("AT1G18620.2", "ZLC03G0000300.1", 60.0, 1e-5,   29),   # C 差一点
     row("AT1G18620.2", "ZLC03G0000400.1", 60.0, 1e-4,   90),   # E 差一点(1e-4>1e-5)
     # --- 片段待查（E 达标但 C 不足） ---
     row("AT1G74160.1", "ZLC04G0000500.1", 85.0, 1e-30,  22),
@@ -191,9 +191,9 @@ def main():
 
     # 边界必须正确
     c.true(any(s == "ZLC02G0000100.1" for _, s in got),
-           "I==30/C==50/E==1e-5 应被纳入 (>= 语义)")
-    c.true(not any(s == "ZLC03G0000200.1" for _, s in got), "identity 29.99 应被排除")
-    c.true(not any(s == "ZLC03G0000300.1" for _, s in got), "coverage 49 应被排除")
+           "I==25/C==30/E==1e-5 应被纳入 (>= 语义)")
+    c.true(not any(s == "ZLC03G0000200.1" for _, s in got), "identity 24.99 应被排除")
+    c.true(not any(s == "ZLC03G0000300.1" for _, s in got), "coverage 29 应被排除")
     c.true(not any(s == "ZLC03G0000400.1" for _, s in got), "evalue 1e-4 应被排除 (>1e-5)")
 
     # 多对多: 同一辣椒蛋白可出现在多个 query 下
@@ -216,7 +216,7 @@ def main():
     frag = stage3_frag(hits)
     c.eq(sorted(h["sseqid"] for h in frag),
          ["ZLC03G0000300.1", "ZLC04G0000500.1", "ZLC04G0000600.1"],
-         "阶段3 片段待查档 (E 达标但 C<50)")
+         "阶段3 片段待查档 (E 达标但 C<30)")
 
     # 三档互斥性: 片段档与主候选档不得重叠
     c.true(not ({h["sseqid"] for h in frag} & {h["sseqid"] for h in main_hits}),
